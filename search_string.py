@@ -8,4 +8,5 @@ if search_interval > 0 and search_interval < len(search_string):
     if count % search_interval == 0:
       print(char)
     count += 1
-
+else:
+  print('invalid interval')
