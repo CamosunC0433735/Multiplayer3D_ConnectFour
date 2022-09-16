@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 import socket
 BUF_SIZE = 1024
-HOST = '10.21.75.56'
+HOST = ''
 PORT = 12345
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock: # TCP socket
 	sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) # Details later
@@ -13,5 +13,5 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock: # TCP socket
 		with sc:
 			print('Client:', sc.getpeername()) # Dest. IP and port
 			data = sc.recv(BUF_SIZE) # recvfrom not needed since address is known
-			print(data)
-			sc.sendall(data) # Dest. IP and port implicit due to accept call
+			print('The data', data)
+			sc.sendall(bytes('hi erik\n', 'utf-8'))
