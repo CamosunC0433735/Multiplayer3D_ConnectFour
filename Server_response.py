@@ -14,4 +14,4 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock: # TCP socket
 			print('Client:', sc.getpeername()) # Dest. IP and port
 			data = sc.recv(BUF_SIZE) # recvfrom not needed since address is known
 			print('The data', data)
-			sc.sendall(bytes('hi erik\n', 'utf-8'))
+			sc.sendall(bytes('hi erik\n' + data.decode(), 'utf-8'))
