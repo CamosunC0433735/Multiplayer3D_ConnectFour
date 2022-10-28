@@ -256,6 +256,5 @@ def createServer():
             else:
                 sc.sendall(GENERIC_REJECT)
                 sc.close()
-                
             
 createServer()
