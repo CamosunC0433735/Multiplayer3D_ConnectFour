@@ -11,6 +11,7 @@ PORT = 12345
 BOARD_SIZE = 4
 GENERIC_ERROR = b'E*'
 GENERIC_OKAY = b'O*'
+GENERIC_REJECT = b'R*'
 NUM_PLAYERS = 3
 ARRAY_DIMENSION = 3
 
@@ -35,7 +36,7 @@ for i in range(NUM_PLAYERS):
     locks.append(threading.Semaphore())
     locks[-1].acquire()
 
-def contactPlayer(sock, player_id):
+def contactPlayer(sc, player_id):
     """Allows the player to send data to the server. Rejects out of turn place statements.
 
     Args:
@@ -43,32 +44,28 @@ def contactPlayer(sock, player_id):
         player_id (int): Player's turn thread ID.
     """
     global turn
-    player_id_string = str(player_id)
-    sc, sockname = sock.accept()
     while True:
+        data = b''
+        while True:
+            inputChar = sc.recv(1)
+            if inputChar == b'*':
+                break
+            if inputChar == b'\n':
+                continue
+            data += inputChar
 
-            data = b''
-            while True:
-                inputChar = sc.recv(1)
-                if inputChar == b'*':
-                    break
-                if inputChar == b'\n':
-                    continue
-                data += inputChar
-
-            #If it was not your turn to play, do validation, it will catch it.
-            #If it was a bad format, P or C, do validation, it will catch it.
-            if not re.search('^P[0-3][0-3][0-3][1-3]$', data.decode('utf-8')) or turn - 1 != player_id or game_won:
-                getInput(data, sc)
-            #If it was your turn and the command is valid, place your token!
+        #If it was not your turn to play, do validation, it will catch it.
+        #If it was a bad format, P or C, do validation, it will catch it.
+        if not re.search('^P[0-3][0-3][0-3][1-3]$', data.decode('utf-8')) or turn - 1 != player_id or game_won:
+            if(data.decode('utf-8')[0] != 'P'):
+                handleInput(data, sc)
             else:
-                locks[player_id].acquire()
-                getInput(data, sc)
-                if not game_won:
-                    turn = turn + 1
-                    if turn == 4:
-                        turn = 1
-                locks[(player_id + 1) % NUM_PLAYERS].release()
+                sendError(sc)
+        #If it was your turn and the command is valid, place your token!
+        else:
+            locks[0].acquire()
+            handleInput(data, sc)
+            locks[0].release()
 
 def sendError(sc):
     """
@@ -86,6 +83,7 @@ def sendOkay(sc):
     Args:
         sc (socket): The network socket.
     """
+    
     sc.sendall(GENERIC_OKAY)
 
 def createBoardString():
@@ -102,10 +100,13 @@ def createBoardString():
                 stringBoard += str(board[layer][row][col])
             stringBoard += '\n'
         stringBoard += '\n'
-    stringBoard += '\nPlayer ' + str(turn) + '\'s turn\n'
+    if(not game_won):
+        stringBoard += 'Player ' + str(turn) + '\'s turn'
+    else:
+        stringBoard += "Player " + str(turn) + " wins"
     return stringBoard
 
-def getInput(input, sc):
+def handleInput(input, sc):
     """
     Based on user input, decides what action to take.
     1:Mark the board. 2:Print the board. 3:Clear the board.
@@ -118,15 +119,14 @@ def getInput(input, sc):
     input = input.decode('utf-8')
 
     if re.search('^C$', input):
-            clearBoard(sc)
-    elif game_won:
-        win_string = "Game won by player " + str(turn) + "*"
-        sc.sendall(bytes(win_string, 'utf-8'))
-    else:
-        if re.search('^P[0-3][0-3][0-3][1-3]$', input):
-            markBoard(input,sc)
-        elif re.search('^G$', input):
+        clearBoard(sc)
+    elif re.search('^G$', input):
             getBoard(sc)
+    elif game_won:
+        sendError(sc)
+    else:
+        if re.search(f'^P[0-3][0-3][0-3][{turn}]$', input):
+            markBoard(input,sc)
         else:
             sendError(sc)
 
@@ -146,21 +146,21 @@ def clearBoard(sc):
     Args:
         sc (socket): The network socket.
     """
+    sendOkay(sc)
     global turn
     global game_won
     turn = 1
-    locks[0].release()
+    #locks[0].release()
     game_won = False
     for layer in range(BOARD_SIZE):
         for row in range(BOARD_SIZE):
             for col in range(BOARD_SIZE):
                 board[layer][row][col] = '_'
-    sendOkay(sc)
 
 def markBoard(input, sc):
     """
     Place a mark on the board at the specified location.
-    Does NOT validate input, as that should be already done in getInput()
+    Does NOT validate input, as that should be already done in handleInput()
     Input format is: Pxyz[1-3] / P####
 
     Args:
@@ -168,6 +168,7 @@ def markBoard(input, sc):
         sc (Socket): The network socket.
     """
     global game_won
+    global turn
     if int(input[4]) == turn and board[int(input[1])][int(input[2])][int(input[3])] == '_':
         board[int(input[1])][int(input[2])][int(input[3])] = turn
         sendOkay(sc)
@@ -175,6 +176,10 @@ def markBoard(input, sc):
         
     else:
         sendError(sc)
+    if not game_won:
+                turn = turn + 1
+                if turn == 4:
+                    turn = 1
 
 def checkWin():
     """Checks if the player's who's turn it currently is has won the game.
@@ -223,8 +228,8 @@ def checkWin():
             if (
                 (angle == 0 and board[row][row][row]==turn)  or
                 (angle == 1 and board[row][row][BOARD_SIZE-1 - row]==turn) or 
-                (angle == 1 and board[row][BOARD_SIZE-1 - row][row]==turn) or 
-                (angle == 1 and board[BOARD_SIZE-1 - row][row][row]==turn)
+                (angle == 2 and board[row][BOARD_SIZE-1 - row][row]==turn) or 
+                (angle == 3 and board[BOARD_SIZE-1 - row][row][row]==turn)
                 ):
                     count += 1
         if count == BOARD_SIZE:
@@ -243,8 +248,14 @@ def createServer():
         sock.bind((HOST, PORT)) # Claim messages sent to port "PORT"
         sock.listen(NUM_PLAYERS) # Enable server to receive 1 connection at a time
         logger.info('Server:' + str(sock.getsockname())) # Source IP and port
-        while connected_clients < NUM_PLAYERS:
-            threading.Thread(target = contactPlayer, args = (sock, connected_clients, )).start()
-            connected_clients += 1
+        while True:
+            sc, sockname = sock.accept()
+            if connected_clients < NUM_PLAYERS:
+                threading.Thread(target = contactPlayer, args = (sc, connected_clients)).start()
+                connected_clients += 1
+            else:
+                sc.sendall(GENERIC_REJECT)
+                sc.close()
+                
             
 createServer()
