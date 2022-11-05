@@ -19,6 +19,8 @@ LAYER = 1
 COL = 2
 ROW = 3
 TOKEN = 4
+SEARCH_TOKEN = '^C$'
+GET_TOKEN = '^G$'
 
 
 # Setup logging
@@ -39,18 +41,13 @@ game_won = False
 #Global number of current connections
 connections = 0
 
-# Senaphore Locks
-# locks = []
-#for i in range(NUM_PLAYERS):
-    # locks.append(threading.Semaphore())
-    # locks[-1].acquire()
-
 async def contactPlayer(reader, writer, player_id):
     """Allows the player to send data to the server. Rejects out of turn place statements.
 
     Args:
-        sock (socket): The network socket
-        player_id (int): Player's turn thread ID.
+        reader: Allows the function to read in data
+        writer: Allows the function to send data
+        player_id (int): Player's turn ID.
     """
     global turn
     while True:
@@ -66,41 +63,39 @@ async def contactPlayer(reader, writer, player_id):
                 await sendError(writer)
         #If it was your turn and the command is valid, place your token!
         else:
-            # locks[0].acquire()
             await handleInput(data, writer)
-            # locks[0].release()
 
-async def sendError(sc):
+async def sendError(writer):
     """
     Sends a generic error message to the client.
 
     Args:
-        sc (socket): The network socket.
+        writer (socket): Allows the function to send data.
     """
-    sc.write(GENERIC_ERROR)
-    await sc.drain()
+    writer.write(GENERIC_ERROR)
+    await writer.drain()
 
-async def sendOkay(sc):
+async def sendOkay(writer):
     """
     Sends a generic success message to the client.
 
     Args:
-        sc (socket): The network socket.
+        writer (socket): Allows the function to send data.
     """
     
-    sc.write(GENERIC_OKAY)
-    await sc.drain()
+    writer.write(GENERIC_OKAY)
+    await writer.drain()
 
-async def sendReject(sc):
+async def sendReject(writer):
     """
     Sends a generic connection rejection message to the client.
 
     Args:
-        sc (socket): The network socket.
+        writer (socket): Allows the function to send data.
     """
     
-    sc.write(GENERIC_REJECT)
-    await sc.drain()
+    writer.write(GENERIC_REJECT)
+    await writer.drain()
 
 def createBoardString():
     """
@@ -122,10 +117,7 @@ def createBoardString():
         stringBoard += "Player " + str(turn) + " wins"
     return stringBoard
 
-SEARCH_TOKEN = '^C$'
-GET_TOKEN = '^G$'
-
-async def handleInput(input, sc):
+async def handleInput(input, writer):
     """
     Based on user input, decides what action to take.
     1:Mark the board. 2:Print the board. 3:Clear the board.
@@ -133,40 +125,40 @@ async def handleInput(input, sc):
 
     Args:
         input (bytes): The user input, in bytes.
-        sc (socket): The network socket.
+        writer (socket): Allows the function to send data.
     """
     input = input.decode('utf-8')
 
     if re.search(SEARCH_TOKEN, input):
-        await clearBoard(sc)
+        await clearBoard(writer)
     elif re.search(GET_TOKEN, input):
-            await getBoard(sc)
+            await getBoard(writer)
     elif game_won:
-        await sendError(sc)
+        await sendError(writer)
     else:
         if re.search(f'^P[0-{ARRAY_DIMENSION}][0-{ARRAY_DIMENSION}][0-{ARRAY_DIMENSION}][{turn}]$', input):
-            await markBoard(input,sc)
+            await markBoard(input,writer)
         else:
-            await sendError(sc)
+            await sendError(writer)
 
-async def getBoard(sc):
+async def getBoard(writer):
     """
     Sends a string representation of the board to the client, using createBoardString()
 
     Args:
-        sc (socket): The network socket.
+        writer (socket): The network socket.
     """
-    sc.write(bytes(createBoardString() + '*','utf-8'))
-    await sc.drain()
+    writer.write(bytes(createBoardString() + '*','utf-8'))
+    await writer.drain()
 
-async def clearBoard(sc):
+async def clearBoard(writer):
     """
     Clears the board array and sets the turn back to player 1's turn.
 
     Args:
-        sc (socket): The network socket.
+        writer (socket): The network socket.
     """
-    await sendOkay(sc)
+    await sendOkay(writer)
     global turn
     global game_won
     turn = 1
@@ -177,7 +169,7 @@ async def clearBoard(sc):
             for col in range(BOARD_SIZE):
                 board[layer][row][col] = '_'
 
-async def markBoard(input, sc):
+async def markBoard(input, writer):
     """
     Place a mark on the board at the specified location.
     Does NOT validate input, as that should be already done in handleInput()
@@ -185,17 +177,17 @@ async def markBoard(input, sc):
 
     Args:
         input (string): String representation of the put request.
-        sc (Socket): The network socket.
+        writer (Socket): Allows the function to send data.
     """
     global game_won
     global turn
     if int(input[TOKEN]) == turn and board[int(input[LAYER])][int(input[COL])][int(input[ROW])] == '_':
         board[int(input[LAYER])][int(input[COL])][int(input[ROW])] = turn
-        await sendOkay(sc)
+        await sendOkay(writer)
         game_won = checkWin()
         
     else:
-        await sendError(sc)
+        await sendError(writer)
     if not game_won:
                 turn = turn + 1
                 if turn == 4:
