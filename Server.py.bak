@@ -1,12 +1,12 @@
 #!/usr/bin/python3
-# import socket
+import socket
 import re
-# import threading
+import threading
 import asyncio
 import logging
 import logging.handlers
 
-# BUF_SIZE = 1024
+BUF_SIZE = 1024
 HOST = ''
 PORT = 12345
 BOARD_SIZE = 4
@@ -15,13 +15,6 @@ GENERIC_OKAY = b'O*'
 GENERIC_REJECT = b'R*'
 NUM_PLAYERS = 3
 ARRAY_DIMENSION = 3
-LAYER = 1
-COL = 2
-ROW = 3
-TOKEN = 4
-SEARCH_TOKEN = '^C$'
-GET_TOKEN = '^G$'
-
 
 # Setup logging
 logger = logging.getLogger('client.py')
@@ -38,64 +31,61 @@ turn = 1
 #Global game won bool
 game_won = False
 
-#Global number of current connections
-connections = 0
+#Senaphore Locks
+locks = []
+for i in range(NUM_PLAYERS):
+    locks.append(threading.Semaphore())
+    locks[-1].acquire()
 
-async def contactPlayer(reader, writer, player_id):
+def contactPlayer(sc, player_id):
     """Allows the player to send data to the server. Rejects out of turn place statements.
 
     Args:
-        reader: Allows the function to read in data
-        writer: Allows the function to send data
-        player_id (int): Player's turn ID.
+        sock (socket): The network socket
+        player_id (int): Player's turn thread ID.
     """
     global turn
     while True:
-        data = await reader.readuntil(b'*')
-        data = data[:-1].strip()
+        data = b''
+        while True:
+            inputChar = sc.recv(1)
+            if inputChar == b'*':
+                break
+            if inputChar == b'\n':
+                continue
+            data += inputChar
 
         #If it was not your turn to play, do validation, it will catch it.
         #If it was a bad format, P or C, do validation, it will catch it.
         if not re.search('^P[0-3][0-3][0-3][1-3]$', data.decode('utf-8')) or turn - 1 != player_id or game_won:
             if(data.decode('utf-8')[0] != 'P'):
-                await handleInput(data, writer)
+                handleInput(data, sc)
             else:
-                await sendError(writer)
+                sendError(sc)
         #If it was your turn and the command is valid, place your token!
         else:
-            await handleInput(data, writer)
+            locks[0].acquire()
+            handleInput(data, sc)
+            locks[0].release()
 
-async def sendError(writer):
+def sendError(sc):
     """
     Sends a generic error message to the client.
 
     Args:
-        writer (socket): Allows the function to send data.
+        sc (socket): The network socket.
     """
-    writer.write(GENERIC_ERROR)
-    await writer.drain()
+    sc.sendall(GENERIC_ERROR)
 
-async def sendOkay(writer):
+def sendOkay(sc):
     """
-    Sends a generic success message to the client.
-
-    Args:
-        writer (socket): Allows the function to send data.
-    """
-    
-    writer.write(GENERIC_OKAY)
-    await writer.drain()
-
-async def sendReject(writer):
-    """
-    Sends a generic connection rejection message to the client.
+    Sends a generic error message to the client.
 
     Args:
-        writer (socket): Allows the function to send data.
+        sc (socket): The network socket.
     """
     
-    writer.write(GENERIC_REJECT)
-    await writer.drain()
+    sc.sendall(GENERIC_OKAY)
 
 def createBoardString():
     """
@@ -117,7 +107,7 @@ def createBoardString():
         stringBoard += "Player " + str(turn) + " wins"
     return stringBoard
 
-async def handleInput(input, writer):
+def handleInput(input, sc):
     """
     Based on user input, decides what action to take.
     1:Mark the board. 2:Print the board. 3:Clear the board.
@@ -125,51 +115,50 @@ async def handleInput(input, writer):
 
     Args:
         input (bytes): The user input, in bytes.
-        writer (socket): Allows the function to send data.
+        sc (socket): The network socket.
     """
     input = input.decode('utf-8')
 
-    if re.search(SEARCH_TOKEN, input):
-        await clearBoard(writer)
-    elif re.search(GET_TOKEN, input):
-            await getBoard(writer)
+    if re.search('^C$', input):
+        clearBoard(sc)
+    elif re.search('^G$', input):
+            getBoard(sc)
     elif game_won:
-        await sendError(writer)
+        sendError(sc)
     else:
-        if re.search(f'^P[0-{ARRAY_DIMENSION}][0-{ARRAY_DIMENSION}][0-{ARRAY_DIMENSION}][{turn}]$', input):
-            await markBoard(input,writer)
+        if re.search(f'^P[0-3][0-3][0-3][{turn}]$', input):
+            markBoard(input,sc)
         else:
-            await sendError(writer)
+            sendError(sc)
 
-async def getBoard(writer):
+def getBoard(sc):
     """
     Sends a string representation of the board to the client, using createBoardString()
 
     Args:
-        writer (socket): The network socket.
+        sc (socket): The network socket.
     """
-    writer.write(bytes(createBoardString() + '*','utf-8'))
-    await writer.drain()
+    sc.sendall(bytes(createBoardString() + '*','utf-8'))
 
-async def clearBoard(writer):
+def clearBoard(sc):
     """
     Clears the board array and sets the turn back to player 1's turn.
 
     Args:
-        writer (socket): The network socket.
+        sc (socket): The network socket.
     """
-    await sendOkay(writer)
+    sendOkay(sc)
     global turn
     global game_won
     turn = 1
-    # locks[0].release()
+    #locks[0].release()
     game_won = False
     for layer in range(BOARD_SIZE):
         for row in range(BOARD_SIZE):
             for col in range(BOARD_SIZE):
                 board[layer][row][col] = '_'
 
-async def markBoard(input, writer):
+def markBoard(input, sc):
     """
     Place a mark on the board at the specified location.
     Does NOT validate input, as that should be already done in handleInput()
@@ -177,17 +166,17 @@ async def markBoard(input, writer):
 
     Args:
         input (string): String representation of the put request.
-        writer (Socket): Allows the function to send data.
+        sc (Socket): The network socket.
     """
     global game_won
     global turn
-    if int(input[TOKEN]) == turn and board[int(input[LAYER])][int(input[COL])][int(input[ROW])] == '_':
-        board[int(input[LAYER])][int(input[COL])][int(input[ROW])] = turn
-        await sendOkay(writer)
+    if int(input[4]) == turn and board[int(input[1])][int(input[2])][int(input[3])] == '_':
+        board[int(input[1])][int(input[2])][int(input[3])] = turn
+        sendOkay(sc)
         game_won = checkWin()
         
     else:
-        await sendError(writer)
+        sendError(sc)
     if not game_won:
                 turn = turn + 1
                 if turn == 4:
@@ -249,24 +238,24 @@ def checkWin():
     
     return False
 
-async def createServer(reader, writer):
+def createServer():
     """
     Creates the server and starts listening for player input.
     """
-    global connections
-    connections += 1
-    if connections <= NUM_PLAYERS:
-        await contactPlayer(reader, writer, connections-1)
-    else:
-        await sendReject(writer)
-    writer.close()
-    await writer.wait_closed()
-
-
-async def main():
-    server = await asyncio.start_server(createServer, HOST, PORT)
-    await server.serve_forever()
-
-
+    connected_clients = 0
+    locks[0].release()
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock: # TCP socket
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) # Details later
+        sock.bind((HOST, PORT)) # Claim messages sent to port "PORT"
+        sock.listen(NUM_PLAYERS) # Enable server to receive 1 connection at a time
+        logger.info('Server:' + str(sock.getsockname())) # Source IP and port
+        while True:
+            sc, sockname = sock.accept()
+            if connected_clients < NUM_PLAYERS:
+                threading.Thread(target = contactPlayer, args = (sc, connected_clients)).start()
+                connected_clients += 1
+            else:
+                sc.sendall(GENERIC_REJECT)
+                sc.close()
             
-asyncio.run(main())
+createServer()
