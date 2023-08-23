@@ -8,7 +8,7 @@ Download the repository, and run Server.py
 ### How to play:
 For the most simple manner of connecting to the server, use netcat, ncat or related tools.
 By default, the server runs on port 12345.
-`netcat [local ip] 12345`
+To connect, use `nc [local ip] 12345`
 
 Once you are connected, a few options are available.
 Note that you must always send '*' at the end of your command, as that lets the server know that no more input is coming.
