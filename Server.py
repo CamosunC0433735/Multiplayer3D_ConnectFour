@@ -24,10 +24,10 @@ GET_TOKEN = '^G$'
 
 
 # Setup logging
-logger = logging.getLogger('client.py')
-logger.setLevel(logging.DEBUG)
-handler = logging.handlers.SysLogHandler(address = '/dev/log')
-logger.addHandler(handler)
+# logger = logging.getLogger('client.py')
+# logger.setLevel(logging.DEBUG)
+# handler = logging.handlers.SysLogHandler(address = '/dev/log')
+# logger.addHandler(handler)
 
 # Global board array. '_' means the space is empty. 1-3 means the place has been taken by a player.
 board = [[['_' for i in range(BOARD_SIZE)]for i in range (BOARD_SIZE)] for i in range(BOARD_SIZE)]
